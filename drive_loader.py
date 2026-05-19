@@ -27,6 +27,7 @@ SERVICE_CATEGORIES = ["Home Cleaning", "Salon at Home", "Specialty", "Healthcare
 
 def _drive_service():
     info = dict(st.secrets["gcp_service_account"])
+    info["private_key"] = info["private_key"].replace("\\n", "\n")
     creds = service_account.Credentials.from_service_account_info(
         info, scopes=["https://www.googleapis.com/auth/drive.readonly"]
     )
