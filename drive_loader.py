@@ -26,8 +26,8 @@ SERVICE_CATEGORIES = ["Home Cleaning", "Salon at Home", "Specialty", "Healthcare
 
 
 def _drive_service():
-    import json
-    info = json.loads(st.secrets["gcp_service_account_json"])
+    # Read credentials directly from TOML section
+        info = dict(st.secrets["gcp_service_account"])
     creds = service_account.Credentials.from_service_account_info(
         info, scopes=["https://www.googleapis.com/auth/drive.readonly"]
     )
