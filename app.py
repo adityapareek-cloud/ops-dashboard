@@ -19,14 +19,21 @@ st.set_page_config(
 
 UAE_TZ = pytz.timezone("Asia/Dubai")
 
+# Metrics: key → (display label, format type, delta_inverse)
+# delta_inverse=True means "down is good" (cancellations, absences)
 METRICS = [
-    ("gmv",                "GMV (AED)",        "currency", False),
-    ("bookings_completed", "Deliveries",        "int",      False),
-    ("total_cancellations","Cancellations",     "int",      True),
-    ("absent_hc",          "Absences (HC)",     "int",      True),
-    ("utilization_pct",    "Utilization",       "pct",      False),
+    ("gmv",                      "GMV (AED)",      "currency", False),
+    ("booking_completed",        "Deliveries",      "int",      False),
+    ("cancellation_and_release", "Cancellations",   "int",      True),
+    ("absent_hc",                "Absent",          "int",      True),
+    ("absent_bd_hc",             "Absent BD",       "int",      True),
+    ("utilization_pct",          "Utilization",     "pct",      False),
+    ("avg_rating",               "Avg Rating",      "rating",   False),
+    ("number_of_active_cleaner", "Active Cleaners", "int",      False),
 ]
 
+
+# ── Formatting helpers ────────────────────────────────────────────────────────
 
 def fmt_value(val, kind: str) -> str:
     if val is None or (isinstance(val, float) and np.isnan(val)):
@@ -38,13 +45,16 @@ def fmt_value(val, kind: str) -> str:
             return f"AED {val / 1_000:.1f}K"
         return f"AED {val:.0f}"
     if kind == "int":
-        return f"{int(val):,}"
+        return f"{int(round(val)):,}"
     if kind == "pct":
         return f"{val:.1f}%"
+    if kind == "rating":
+        return f"{val:.2f} ⭐"
     return str(val)
 
 
 def fmt_delta(curr, prev, inverse: bool):
+    """Return (delta_string, delta_color) or (None, None) if not computable."""
     if curr is None or prev is None:
         return None, None
     if isinstance(curr, float) and np.isnan(curr):
@@ -60,19 +70,35 @@ def fmt_delta(curr, prev, inverse: bool):
     return label, color
 
 
+# ── Aggregation ───────────────────────────────────────────────────────────────
+
+# Columns that must be averaged (not summed) across multiple days
+_MEAN_COLS = {"avg_rating", "number_of_active_cleaner"}
+# Columns computed separately after groupby
+_DERIVED_COLS = {"utilization_pct"}
+
 def aggregate(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
-    exclude = {"utilization_pct", "total_cancellations"}
+
+    exclude = _MEAN_COLS | _DERIVED_COLS
     num_cols = [c for c in df.select_dtypes(include="number").columns if c not in exclude]
+
     result = df.groupby("dim_company")[num_cols].sum().reset_index()
-    result["total_cancellations"] = (
-        result.get("same_day_cancel_bookings", 0).fillna(0)
-        + result.get("na_cancelled", 0).fillna(0)
-        + result.get("cancellation_and_release", 0).fillna(0)
-    )
+
+    # Utilization: recompute from summed hours
     elig = result.get("eligible_hour_hc", pd.Series(dtype=float)).replace(0, float("nan"))
     result["utilization_pct"] = (result.get("duration_hour_hc", 0) / elig * 100).round(1)
+
+    # Rating and headcount: average across days (not sum)
+    for col in ["avg_rating", "number_of_active_cleaner"]:
+        if col in df.columns:
+            means = df.groupby("dim_company")[col].mean()
+            result[col] = result["dim_company"].map(means)
+
+    result["avg_rating"] = result["avg_rating"].round(2)
+    result["number_of_active_cleaner"] = result["number_of_active_cleaner"].round(0)
+
     return result
 
 
@@ -84,6 +110,8 @@ def get_company_row(agg_df: pd.DataFrame, company: str) -> dict:
         return {}
     return rows.iloc[0].to_dict()
 
+
+# ── KPI card block for one company ───────────────────────────────────────────
 
 def render_company_block(company: str, curr_row: dict, prev_row: dict | None):
     label = COMPANY_LABELS[company]
@@ -100,9 +128,12 @@ def render_company_block(company: str, curr_row: dict, prev_row: dict | None):
         )
 
 
+# ── Three-company comparison row ─────────────────────────────────────────────
+
 def render_comparison(curr_df, prev_df):
     curr_agg = aggregate(curr_df)
     prev_agg = aggregate(prev_df) if (prev_df is not None and not prev_df.empty) else pd.DataFrame()
+
     cols = st.columns(3)
     for col, company in zip(cols, COMPANIES):
         curr_row = get_company_row(curr_agg, company)
@@ -143,23 +174,26 @@ with st.sidebar.expander("🔍 Drive diagnostics", expanded=False):
 # Header
 st.title("Ops Dashboard")
 
-# Load data (31 days to cover full month for monthly view)
+# Load data
 with st.spinner("Fetching latest data from Drive…"):
     try:
         daily_df   = load_daily(days=31)
+        weekly_df  = load_weekly()
         monthly_df = load_monthly()
     except Exception as e:
         st.error(f"Drive error: {e}")
-        daily_df = monthly_df = pd.DataFrame()
+        daily_df = weekly_df = monthly_df = pd.DataFrame()
 
 tab_daily, tab_weekly, tab_monthly = st.tabs(["📅 Daily", "📆 Weekly", "🗓️ Monthly"])
 
 # ── DAILY TAB — yesterday vs same day last week ───────────────────────────────
 with tab_daily:
     same_day_lw = yesterday - timedelta(weeks=1)
+
     st.subheader(f"{yesterday.strftime('%d %b %Y')}")
     st.caption(f"↕ vs {same_day_lw.strftime('%d %b %Y')}")
     st.markdown("---")
+
     if daily_df.empty:
         st.warning("No daily data loaded. Check your Drive connection.")
     else:
@@ -167,13 +201,19 @@ with tab_daily:
         prev_d = daily_df[daily_df["dim_master_date"].dt.date == same_day_lw]
         render_comparison(curr_d, prev_d)
 
-# ── WEEKLY TAB — week to date vs same days last week ─────────────────────────
+# ── WEEKLY TAB — week to date vs full previous week ──────────────────────────
 with tab_weekly:
     last_monday   = this_monday - timedelta(weeks=1)
-    last_week_end = last_monday + timedelta(days=days_in_week - 1)
-    st.subheader(f"Week to date: {this_monday.strftime('%d %b')} – {today.strftime('%d %b %Y')}")
-    st.caption(f"↕ vs same {days_in_week} day(s) last week ({last_monday.strftime('%d %b')} – {last_week_end.strftime('%d %b')})")
+    last_week_end = last_monday + timedelta(days=6)
+
+    st.subheader(
+        f"Week to date: {this_monday.strftime('%d %b')} – {today.strftime('%d %b %Y')}"
+    )
+    st.caption(
+        f"↕ vs last week ({last_monday.strftime('%d %b')} – {last_week_end.strftime('%d %b')})"
+    )
     st.markdown("---")
+
     if daily_df.empty:
         st.warning("No weekly data loaded. Check your Drive connection.")
     else:
@@ -181,10 +221,16 @@ with tab_weekly:
             (daily_df["dim_master_date"].dt.date >= this_monday) &
             (daily_df["dim_master_date"].dt.date <= today)
         ]
-        prev_w = daily_df[
-            (daily_df["dim_master_date"].dt.date >= last_monday) &
-            (daily_df["dim_master_date"].dt.date <= last_week_end)
-        ]
+        if not weekly_df.empty:
+            prev_w = weekly_df[
+                (weekly_df["dim_master_date"].dt.date >= last_monday) &
+                (weekly_df["dim_master_date"].dt.date <= last_week_end)
+            ]
+        else:
+            prev_w = daily_df[
+                (daily_df["dim_master_date"].dt.date >= last_monday) &
+                (daily_df["dim_master_date"].dt.date <= last_week_end)
+            ]
         render_comparison(curr_w, prev_w)
 
 # ── MONTHLY TAB — current month vs previous month ────────────────────────────
@@ -192,13 +238,16 @@ with tab_monthly:
     curr_month_start = today.replace(day=1)
     prev_month_end   = curr_month_start - timedelta(days=1)
     prev_month_start = prev_month_end.replace(day=1)
+
     st.subheader(f"{today.strftime('%B %Y')} (month to date)")
     st.caption(f"↕ vs {prev_month_end.strftime('%B %Y')}")
     st.markdown("---")
+
     if daily_df.empty:
         st.warning("No monthly data loaded. Check your Drive connection.")
     else:
         curr_m = daily_df[daily_df["dim_master_date"].dt.date >= curr_month_start]
+        # For previous month use monthly file if available, else daily
         if not monthly_df.empty:
             prev_m = monthly_df[
                 (monthly_df["dim_master_date"].dt.month == prev_month_end.month) &

@@ -68,11 +68,6 @@ def _enrich(df: pd.DataFrame) -> pd.DataFrame:
         return df
     df = df.copy()
     df["dim_master_date"] = pd.to_datetime(df["dim_master_date"])
-    df["total_cancellations"] = (
-        df.get("same_day_cancel_bookings", 0).fillna(0)
-        + df.get("na_cancelled", 0).fillna(0)
-        + df.get("cancellation_and_release", 0).fillna(0)
-    )
     elig = df.get("eligible_hour_hc", pd.Series(dtype=float)).replace(0, float("nan"))
     df["utilization_pct"] = (df.get("duration_hour_hc", 0) / elig * 100).round(1)
     mask = df["dim_company"].isin(COMPANIES)
