@@ -144,13 +144,7 @@ this_monday = today - timedelta(days=days_since_monday)
 days_in_week = days_since_monday + 1         # 1 on Mon, 5 on Fri
 
 # Sidebar
-st.sidebar.title("Filters")
-selected_svc = st.sidebar.multiselect(
-    "Service Category",
-    SERVICE_CATEGORIES,
-    default=SERVICE_CATEGORIES,
-)
-service_filter = selected_svc if selected_svc else None
+service_filter = ["Home Cleaning"]
 
 if st.sidebar.button("Force Refresh Data"):
     st.cache_data.clear()
