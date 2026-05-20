@@ -162,11 +162,29 @@ st.sidebar.caption(f"Data as of: {now_uae.strftime('%d %b %Y, %H:%M')} UAE")
 # Header
 st.title("Ops Dashboard")
 
+
 # Load data
+from drive_loader import _list_folder, FOLDER_IDS
 with st.spinner("Fetching latest data from Drive…"):
-    daily_df  = load_daily(days=14)
-    weekly_df = load_weekly()
-    monthly_df = load_monthly()
+    try:
+        daily_df  = load_daily(days=14)
+        weekly_df = load_weekly()
+        monthly_df = load_monthly()
+    except Exception as e:
+        st.error(f"Drive error: {e}")
+        daily_df = weekly_df = monthly_df = pd.DataFrame()
+
+with st.sidebar.expander("🔍 Drive diagnostics", expanded=False):
+    for label, fid in FOLDER_IDS.items():
+        try:
+            files = _list_folder(fid)
+            st.write(f"**{label}** ({len(files)} files)")
+            for f in files[:5]:
+                st.caption(f["name"])
+            if len(files) > 5:
+                st.caption(f"…and {len(files)-5} more")
+        except Exception as e:
+            st.error(f"{label}: {e}")
 
 tab_daily, tab_weekly, tab_monthly = st.tabs(["📅 Daily", "📆 Weekly", "🗓️ Monthly"])
 
