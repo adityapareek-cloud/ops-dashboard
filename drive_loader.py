@@ -42,11 +42,13 @@ def _list_folder(folder_id: str) -> list:
     files, token = [], None
     while True:
         resp = svc.files().list(
-            q=f"'{folder_id}' in parents and mimeType='text/csv' and trashed=false",
-            fields="nextPageToken, files(id, name)",
-            pageToken=token,
-            pageSize=200,
-        ).execute()
+    q=f"'{folder_id}' in parents and mimeType='text/csv' and trashed=false",
+    fields="nextPageToken, files(id, name)",
+    pageToken=token,
+    pageSize=200,
+    supportsAllDrives=True,
+    includeItemsFromAllDrives=True,
+).execute()
         files.extend(resp.get("files", []))
         token = resp.get("nextPageToken")
         if not token:
