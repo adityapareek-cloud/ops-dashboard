@@ -175,24 +175,12 @@ with st.spinner("Fetching latest data from Drive…"):
         daily_df = weekly_df = monthly_df = pd.DataFrame()
 
 with st.sidebar.expander("🔍 Drive diagnostics", expanded=False):
-    from googleapiclient.discovery import build
-    from google.oauth2 import service_account
-    info = dict(st.secrets["gcp_service_account"])
-    creds = service_account.Credentials.from_service_account_info(
-        info, scopes=["https://www.googleapis.com/auth/drive.readonly"]
-    )
-    svc = build("drive", "v3", credentials=creds, cache_discovery=False)
     for label, fid in FOLDER_IDS.items():
         try:
-            resp = svc.files().list(
-                q=f"'{fid}' in parents and trashed=false",
-                fields="files(id, name, mimeType)",
-                pageSize=20,
-            ).execute()
-            files = resp.get("files", [])
+            files = _list_folder(fid)
             st.write(f"**{label}** ({len(files)} files)")
             for f in files:
-                st.caption(f"{f['name']} — {f['mimeType']}")
+                st.caption(f["name"])
         except Exception as e:
             st.error(f"{label}: {e}")
 
