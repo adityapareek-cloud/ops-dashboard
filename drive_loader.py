@@ -42,13 +42,13 @@ def _list_folder(folder_id: str) -> list:
     files, token = [], None
     while True:
         resp = svc.files().list(
-    q=f"'{folder_id}' in parents and mimeType='text/csv' and trashed=false",
-    fields="nextPageToken, files(id, name)",
-    pageToken=token,
-    pageSize=200,
-    supportsAllDrives=True,
-    includeItemsFromAllDrives=True,
-).execute()
+            q=f"'{folder_id}' in parents and mimeType='text/csv' and trashed=false",
+            fields="nextPageToken, files(id, name)",
+            pageToken=token,
+            pageSize=200,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute()
         files.extend(resp.get("files", []))
         token = resp.get("nextPageToken")
         if not token:
@@ -75,7 +75,10 @@ def _enrich(df: pd.DataFrame) -> pd.DataFrame:
     )
     elig = df.get("eligible_hour_hc", pd.Series(dtype=float)).replace(0, float("nan"))
     df["utilization_pct"] = (df.get("duration_hour_hc", 0) / elig * 100).round(1)
-    return df[df["dim_company"].isin(COMPANIES)].copy()
+    mask = df["dim_company"].isin(COMPANIES)
+    if "dim_service_category" in df.columns:
+        mask = mask & (df["dim_service_category"] == "Home Cleaning")
+    return df[mask].copy()
 
 
 def load_daily(days: int = 14) -> pd.DataFrame:
