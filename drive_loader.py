@@ -2,7 +2,7 @@ import io
 import streamlit as st
 import pandas as pd
 from googleapiclient.discovery import build
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 
 FOLDER_IDS = {
     "daily":   "1WHWrT_CmPv5sOkXXCx0QQGZ9-KJZP_ES",
@@ -26,9 +26,12 @@ SERVICE_CATEGORIES = ["Home Cleaning", "Salon at Home", "Specialty", "Healthcare
 
 
 def _drive_service():
-    info = dict(st.secrets["gcp_service_account"])
-    creds = service_account.Credentials.from_service_account_info(
-        info, scopes=["https://www.googleapis.com/auth/drive.readonly"]
+    creds = Credentials(
+        token=None,
+        refresh_token=st.secrets["oauth"]["refresh_token"],
+        client_id=st.secrets["oauth"]["client_id"],
+        client_secret=st.secrets["oauth"]["client_secret"],
+        token_uri="https://oauth2.googleapis.com/token",
     )
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
