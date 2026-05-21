@@ -27,6 +27,7 @@ METRICS = [
     ("cancellation_and_release", "Cancellations",   "int",      True),
     ("absent_hc",                "Absent",          "int",      True),
     ("absent_bd_hc",             "Absent BD",       "int",      True),
+    ("absent_bd_pct",            "Absent BD %",     "pct",      True),
     ("utilization_pct",          "Utilization",     "pct",      False),
     ("avg_rating",               "Avg Rating",      "rating",   False),
     ("number_of_active_cleaner", "Active Cleaners", "int",      False),
@@ -75,7 +76,7 @@ def fmt_delta(curr, prev, inverse: bool):
 # Columns that must be averaged (not summed) across multiple days
 _MEAN_COLS = {"avg_rating", "number_of_active_cleaner"}
 # Columns computed separately after groupby
-_DERIVED_COLS = {"utilization_pct"}
+_DERIVED_COLS = {"utilization_pct", "absent_bd_pct"}
 
 def aggregate(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
@@ -89,6 +90,13 @@ def aggregate(df: pd.DataFrame) -> pd.DataFrame:
     # Utilization: recompute from summed hours
     elig = result.get("eligible_hour_hc", pd.Series(dtype=float)).replace(0, float("nan"))
     result["utilization_pct"] = (result.get("duration_hour_hc", 0) / elig * 100).round(1)
+
+    # Absent BD %: sum(absent_bd_hc) / sum(number_of_active_cleaner) — correct across all periods
+    if "absent_bd_hc" in df.columns and "number_of_active_cleaner" in df.columns:
+        grp = df.groupby("dim_company")[["absent_bd_hc", "number_of_active_cleaner"]].sum()
+        denom = grp["number_of_active_cleaner"].replace(0, float("nan"))
+        pct = (grp["absent_bd_hc"] / denom * 100).round(1)
+        result["absent_bd_pct"] = result["dim_company"].map(pct)
 
     # Rating and headcount: average across days (not sum)
     for col in ["avg_rating", "number_of_active_cleaner"]:
