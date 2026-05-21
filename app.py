@@ -23,7 +23,7 @@ UAE_TZ = pytz.timezone("Asia/Dubai")
 # delta_inverse=True means "down is good" (cancellations, absences)
 METRICS = [
     ("gmv",                      "GMV (AED)",      "currency", False),
-    ("booking_completed",        "Deliveries",      "int",      False),
+    ("bookings_completed",        "Deliveries",      "int",      False),
     ("cancellation_and_release", "Cancellations",   "int",      True),
     ("absent_hc",                "Absent",          "int",      True),
     ("absent_bd_hc",             "Absent BD",       "int",      True),
